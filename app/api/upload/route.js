@@ -1,27 +1,23 @@
-import { put } from '@vercel/blob';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 import { NextResponse } from 'next/server';
 
-export async function POST(request) {
-  try {
-    const formData = await request.formData();
-    const file = formData.get('file');
+const redis = Redis.fromEnv();
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code')?.toUpperCase();
 
-    // 1. Upload the file to cloud storage
-    const blob = await put(file.name, file, { access: 'public' });
-
-    // 2. Generate a random 6-digit code
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    // 3. Save code mapping to the KV database (Expires in 24 hours)
-    await kv.set(code, { url: blob.url, name: file.name }, { ex: 86400 });
-
-    return NextResponse.json({ code });
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!code) {
+    return NextResponse.json({ error: 'Code required' }, { status: 400 });
   }
+
+  // Look up code key in Upstash database
+  const fileInfo = await redis.get(code);
+
+  if (!fileInfo) {
+    return NextResponse.json({ error: 'Invalid or expired code' }, { status: 404 });
+  }
+
+  // Upstash natively handles the data retrieval object parse structure 
+  return NextResponse.json(fileInfo);
 }
